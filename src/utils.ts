@@ -24,14 +24,14 @@ export function isPrimitive(value: any) {
 export function collectFields(instance: any): Record<string, any> {
   const data: Record<string, any> = {};
   for (const key of Object.keys(instance)) {
-    data[key] = collectFieldValue(instance[key]);
+    data[key] = instance[key];
   }
   let proto = Object.getPrototypeOf(instance);
   while (proto && proto !== Object.prototype) {
     for (const key of Object.getOwnPropertyNames(proto)) {
       const desc = Object.getOwnPropertyDescriptor(proto, key);
       if (desc && desc.get && !(key in data)) {
-        data[key] = collectFieldValue(instance[key]);
+        data[key] = instance[key];
       }
     }
     proto = Object.getPrototypeOf(proto);
@@ -40,15 +40,17 @@ export function collectFields(instance: any): Record<string, any> {
 }
 
 /**
- * Convert an observable map to a plain object so it serializes to `{}`/`{k: v}`
- * instead of mobx's `toJSON` entries array (which is not what persisted stores
- * expect). Non-map values pass through untouched.
+ * Normalize an observable map to a plain object (`{k: v}`) so it serializes
+ * correctly. mobx 7's map `toJSON` emits an entries array `[["k", v]]`, which
+ * persisted stores don't expect. Non-map values pass through untouched.
+ *
+ * This is deliberately a SEPARATE step from `collectFields`, which returns raw
+ * field values: observable maps must stay raw until AFTER field formatters
+ * (`@format`) have run, so formatters continue to receive the same shape they
+ * always did (the raw `ObservableMap`, not the converted plain object).
  */
-function collectFieldValue(value: any): any {
-  if (isObservableMap(value)) {
-    return Object.fromEntries(value);
-  }
-  return value;
+export function normalizeMapValues(value: any): any {
+  return isObservableMap(value) ? Object.fromEntries(value) : value;
 }
 
 /**
@@ -64,7 +66,11 @@ export function collectFieldsReplacer(_key: string, value: any): any {
     if (typeof value.toJSON === 'function') {
       return value;
     }
-    return collectFields(value);
+    const fields = collectFields(value);
+    for (const key of Object.keys(fields)) {
+      fields[key] = normalizeMapValues(fields[key]);
+    }
+    return fields;
   }
   return value;
 }
