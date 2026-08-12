@@ -63,7 +63,10 @@ function collectFields(instance) {
   while (proto && proto !== Object.prototype) {
     for (const key of Object.getOwnPropertyNames(proto)) {
       const desc = Object.getOwnPropertyDescriptor(proto, key);
-      if (desc && desc.get && !(key in data)) {
+      // Collect only real accessors (getter+setter). A getter-only computed
+      // property can't be restored (`store[key] = ...` throws on deserialize),
+      // so it shouldn't be written to storage either.
+      if (desc && desc.get && desc.set && !(key in data)) {
         data[key] = instance[key];
       }
     }
@@ -159,6 +162,20 @@ function parseCycle(input, map = new Map(), prefix = '') {
  * @version 1.0.0
  * @desc parse-store.ts
  */
+// Walk the prototype chain for a property descriptor. Class getters (and
+// accessors) are defined on the prototype, so `getOwnPropertyDescriptor`
+// on the instance returns `undefined` for them.
+function lookupDescriptor(target, key) {
+  let proto = target;
+  while (proto) {
+    const desc = Object.getOwnPropertyDescriptor(proto, key);
+    if (desc) {
+      return desc;
+    }
+    proto = Object.getPrototypeOf(proto);
+  }
+  return undefined;
+}
 exports.parseStore = (store, data, isFromServer) => {
   // if store or data is empty, break it
   if (!store || !data) {
@@ -192,6 +209,14 @@ exports.parseStore = (store, data, isFromServer) => {
       // store init the field with a value.
       const desc = Object.getOwnPropertyDescriptor(store, key);
       if (desc && !desc.enumerable && !isFromServer) {
+        continue;
+      }
+      // Skip getter-only (computed) properties: they have no setter, so
+      // `store[key] = ...` below would throw `TypeError: Cannot set property
+      // X of #<Class> which has only a getter`, aborting the whole restore.
+      // Walk the prototype chain since class getters are defined on the prototype.
+      const descOnProto = desc || lookupDescriptor(store, key);
+      if (descOnProto && descOnProto.get && !descOnProto.set) {
         continue;
       }
       const storeValue = store[key];
@@ -263,8 +288,8 @@ class AsyncTrunk {
       if (data) {
         exports.parseStore(this.store, JSON.parse(data), false);
       }
-    } catch (_a) {
-      // DO nothing
+    } catch (reason) {
+      this.onError(reason);
     }
     if (initialState) {
       exports.parseStore(this.store, initialState, true);
