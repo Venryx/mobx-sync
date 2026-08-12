@@ -22,6 +22,16 @@ yarn add mobx-sync
 npm i -S mobx-sync
 ```
 
+## Requirements
+
+- **MobX 7** (or later). MobX 7 dropped legacy `@observable field` decorators and
+  only supports the Stage-3 form, so **every observable field must use the
+  `accessor` keyword**: `@observable accessor foo`. Likewise mobx-sync's own
+  decorators (`@ignore`, `@version`, `@date`, `@format`, ...) are Stage-3 field
+  decorators and are applied to accessor fields.
+- Your TypeScript project must enable **Stage-3 decorators** (no
+  `experimentalDecorators`).
+
 ## Quick Start
 
 ```typescript jsx
@@ -29,12 +39,11 @@ import { AsyncTrunk, date } from 'mobx-sync';
 import { observable } from 'mobx';
 
 class Store {
-  @observable
-  foo = 'bar';
+  @observable accessor foo = 'bar';
 
   @date
   @observable
-  date = new Date();
+  accessor date = new Date();
 }
 
 const store = new Store();
@@ -94,11 +103,11 @@ import { observable } from 'mobx';
 class Store {
   @version(1)
   @observable
-  foo = 1;
+  accessor foo = 1;
 
   @date
   @observable
-  date = new Date();
+  accessor date = new Date();
 }
 
 // ...
@@ -142,14 +151,22 @@ If the persisted version of store's `c1` && `c1_1` has different version with
 
 **NOTE: if you use a non-pure object as the store field, you must initialize it
 before you call `trunk.init`, just like `custom store class`(`C1`, `C2` upon),
-`observable.map`, `observable.array`, etc. And it must be iterable by `for..in`
-grammar, if not, you may need to use a custom formatter(see
-[custom formatter](#custom-formatter) bellow) to serialize/de-serialize it.**
+`observable.map`, `observable.array`, etc. And it must be iterable by
+`JSON.stringify`, if not, you may need to use a custom formatter(see
+[custom formatter](#custom-formatter) below) to serialize/de-serialize it.**
+
+**NOTE on MobX 7 accessors:** with `@observable accessor`, the field is defined as
+a non-enumerable accessor on the prototype, so plain `for..in`/`Object.keys` won't
+see it. mobx-sync handles this internally (it walks the prototype chain for
+accessor fields), so you don't need to do anything special — this note only
+matters if you write your own serialization logic.
 
 Signature:
 
 ```typescript jsx
-function version(id: number): PropertyDecorator & ClassDecorator;
+function version(id: number): \
+  ((target: any, context: ClassFieldDecoratorContext | ClassAccessorDecoratorContext) => void) \
+  & ((target: any, context: ClassDecoratorContext) => void);
 ```
 
 ### ignore control
@@ -167,13 +184,12 @@ import { date, ignore } from 'mobx-sync';
 import { observable } from 'mobx';
 
 class Store {
-  @observable
-  foo = 'bar';
+  @observable accessor foo = 'bar';
 
   @ignore
   @date
   @observable
-  date = new Date();
+  accessor date = new Date();
 }
 ```
 
@@ -185,17 +201,35 @@ Signature:
 /**
  * works in web environment only
  */
-function ignore(target: any, key: string): void;
+function ignore(
+  value: any,
+  context: {
+    name: string | symbol;
+    addInitializer(fn: (this: any) => void): void;
+  },
+): void;
 namespace ignore {
   /**
    * works in both web and ssr environment
    */
-  function ssr(target: any, key: string): void;
+  function ssr(
+    value: any,
+    context: {
+      name: string | symbol;
+      addInitializer(fn: (this: any) => void): void;
+    },
+  ): void;
 
   /**
    * works in ssr environment only
    */
-  function ssrOnly(target: any, key: string): void;
+  function ssrOnly(
+    value: any,
+    context: {
+      name: string | symbol;
+      addInitializer(fn: (this: any) => void): void;
+    },
+  ): void;
 }
 ```
 
@@ -217,7 +251,7 @@ class Store {
     (value: Set<Date>) => Array.from(value, (v) => v.toISOString()),
   )
   @observable
-  allowDates = new Set<Date>();
+  accessor allowDates = new Set<Date>();
 }
 ```
 
@@ -255,11 +289,29 @@ Signature:
 function format<I, O = I>(
   deserializer: (persistedValue: O, currentValue: I) => I,
   serializer?: (value: I) => O,
-): PropertyDecorator;
+): (
+  value: any,
+  context: {
+    name: string | symbol;
+    addInitializer(fn: (this: any) => void): void;
+  },
+) => void;
 
-function date(target: any, key: string): void;
+function date(
+  value: any,
+  context: {
+    name: string | symbol;
+    addInitializer(fn: (this: any) => void): void;
+  },
+): void;
 
-function regexp(target: any, key: string): void;
+function regexp(
+  value: any,
+  context: {
+    name: string | symbol;
+    addInitializer(fn: (this: any) => void): void;
+  },
+): void;
 ```
 
 ### SSR
@@ -277,14 +329,13 @@ For example:
 
 ```typescript jsx
 // store.ts
-import { ignore } from 'mobx-sync'
-import { observable } from 'mobx'
+import { ignore } from 'mobx-sync';
+import { observable } from 'mobx';
 
-export Store {
-  @observable userId = 0
+export class Store {
+  @observable accessor userId = 0;
 
-  @ignore.ssr
-  users = observable.map()
+  @ignore.ssr accessor users = observable.map();
 }
 ```
 
