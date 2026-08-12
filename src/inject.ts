@@ -4,7 +4,7 @@
  */
 
 import { KeyFormat, KeyIgnores, KeyInject, KeyVersions } from './keys';
-import { collectFields } from './utils';
+import { collectFields, normalizeMapValues } from './utils';
 
 export function inject(target: any, key?: string) {
   if (key !== void 0 && !target.hasOwnProperty(key)) {
@@ -30,14 +30,12 @@ export function inject(target: any, key?: string) {
     if (this[KeyFormat]) {
       const dump: any = {};
       for (const key in data) {
-        if (
-          data.hasOwnProperty(key) &&
-          this[KeyFormat][key] &&
-          this[KeyFormat][key].serializer
-        ) {
-          dump[key] = this[KeyFormat][key].serializer(data[key]);
-        } else {
-          dump[key] = data[key];
+        if (data.hasOwnProperty(key)) {
+          const fmt = this[KeyFormat][key];
+          // Formatters receive the RAW field value (e.g. an observable map),
+          // matching the shape they always received before the mobx 7 upgrade.
+          dump[key] =
+            fmt && fmt.serializer ? fmt.serializer(data[key]) : data[key];
         }
       }
       data = dump;
@@ -51,6 +49,13 @@ export function inject(target: any, key?: string) {
         }
       }
       data = dump;
+    }
+    // Convert any remaining observable maps (i.e. fields WITHOUT a formatter)
+    // to plain objects so they serialize as `{k: v}` instead of mobx 7's
+    // entries array. Fields WITH a formatter were already handled above, with
+    // the raw map handed to the serializer.
+    for (const key of Object.keys(data)) {
+      data[key] = normalizeMapValues(data[key]);
     }
     data[KeyVersions] = target[KeyVersions];
     return data;
