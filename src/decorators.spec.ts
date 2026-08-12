@@ -155,3 +155,32 @@ describe('decorator:version', () => {
     });
   });
 });
+
+describe('getter-only computed properties', () => {
+  it('round-trips through serialize + parseStore without throwing', () => {
+    class N {
+      @observable accessor real = 'real';
+      // getter-only: has a getter but no setter, like `@computed get foo()`
+      get doubled() {
+        return this.real + '!';
+      }
+    }
+
+    const n = new N();
+    n.real = 'hello';
+
+    // The getter-only prop must NOT be serialized (so it never clobbers real
+    // persisted fields, and parseStore never tries to set a getter-only prop).
+    const serialized = JSON.stringify(toJSON(n));
+    assert.ok(!serialized.includes('doubled'));
+    assert.ok(serialized.includes('real'));
+
+    // parseStore over the persisted data must not throw.
+    const store = new N();
+    store.real = 'other';
+    assert.doesNotThrow(() => parseStore(store, JSON.parse(serialized), false));
+    assert.strictEqual(store.real, 'hello');
+    // the computed value is derived, not clobbered by persisted data
+    assert.strictEqual(store.doubled, 'hello!');
+  });
+});

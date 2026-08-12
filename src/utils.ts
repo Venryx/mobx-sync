@@ -30,7 +30,10 @@ export function collectFields(instance: any): Record<string, any> {
   while (proto && proto !== Object.prototype) {
     for (const key of Object.getOwnPropertyNames(proto)) {
       const desc = Object.getOwnPropertyDescriptor(proto, key);
-      if (desc && desc.get && !(key in data)) {
+      // Collect only real accessors (getter+setter). A getter-only computed
+      // property can't be restored (`store[key] = ...` throws on deserialize),
+      // so it shouldn't be written to storage either.
+      if (desc && desc.get && desc.set && !(key in data)) {
         data[key] = instance[key];
       }
     }
