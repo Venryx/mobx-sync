@@ -95,8 +95,8 @@ export class AsyncTrunk {
       if (data) {
         parseStore(this.store, JSON.parse(data), false);
       }
-    } catch {
-      // DO nothing
+    } catch (reason) {
+      this.onError(reason);
     }
     if (initialState) {
       parseStore(this.store, initialState, true);

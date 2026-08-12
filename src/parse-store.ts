@@ -12,6 +12,24 @@ import { action, isObservableArray, isObservableMap, observable } from 'mobx';
 import { KeyFormat, KeyNodeVersion, KeyVersions } from './keys';
 import { isPrimitive } from './utils';
 
+// Walk the prototype chain for a property descriptor. Class getters (and
+// accessors) are defined on the prototype, so `getOwnPropertyDescriptor`
+// on the instance returns `undefined` for them.
+function lookupDescriptor(
+  target: any,
+  key: string,
+): PropertyDescriptor | undefined {
+  let proto = target;
+  while (proto) {
+    const desc = Object.getOwnPropertyDescriptor(proto, key);
+    if (desc) {
+      return desc;
+    }
+    proto = Object.getPrototypeOf(proto);
+  }
+  return undefined;
+}
+
 let parseStore = (store: any, data: any, isFromServer: boolean) => {
   // if store or data is empty, break it
   if (!store || !data) {
@@ -21,10 +39,8 @@ let parseStore = (store: any, data: any, isFromServer: boolean) => {
   const storeVersions = store[KeyVersions] || {};
   const deserializers = store[KeyFormat] || {};
   // version control for node
-  if ((KeyNodeVersion in dataVersions)
-    || (KeyNodeVersion in storeVersions)) {
-    if (dataVersions[KeyNodeVersion]
-      !== storeVersions[KeyNodeVersion]) {
+  if (KeyNodeVersion in dataVersions || KeyNodeVersion in storeVersions) {
+    if (dataVersions[KeyNodeVersion] !== storeVersions[KeyNodeVersion]) {
       return;
     }
   }
@@ -49,28 +65,31 @@ let parseStore = (store: any, data: any, isFromServer: boolean) => {
       if (desc && !desc.enumerable && !isFromServer) {
         continue;
       }
+      // Skip getter-only (computed) properties: they have no setter, so
+      // `store[key] = ...` below would throw `TypeError: Cannot set property
+      // X of #<Class> which has only a getter`, aborting the whole restore.
+      // Walk the prototype chain since class getters are defined on the prototype.
+      const descOnProto = desc || lookupDescriptor(store, key);
+      if (descOnProto && descOnProto.get && !descOnProto.set) {
+        continue;
+      }
       const storeValue = store[key];
       const dataValue = data[key];
       if (deserializers[key] && deserializers[key].deserializer) {
         store[key] = deserializers[key].deserializer(dataValue, storeValue);
-      }
-      else if (isObservableArray(storeValue)) {
+      } else if (isObservableArray(storeValue)) {
         // mobx array
         store[key] = observable.array(dataValue);
-      }
-      else if (isObservableMap(storeValue)) {
+      } else if (isObservableMap(storeValue)) {
         // mobx map
         store[key] = observable.map(dataValue);
-      }
-      else if (isPrimitive(dataValue)) {
+      } else if (isPrimitive(dataValue)) {
         // js/mobx primitive objects
         store[key] = dataValue;
-      }
-      else if (!storeValue) {
+      } else if (!storeValue) {
         // if store value is empty, assign persisted data to it directly
         store[key] = dataValue;
-      }
-      else {
+      } else {
         // nested pure js object or mobx observable object
         parseStore(storeValue, dataValue, isFromServer);
       }
