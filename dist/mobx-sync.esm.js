@@ -59,14 +59,14 @@ function isPrimitive(value) {
 function collectFields(instance) {
   const data = {};
   for (const key of Object.keys(instance)) {
-    data[key] = collectFieldValue(instance[key]);
+    data[key] = instance[key];
   }
   let proto = Object.getPrototypeOf(instance);
   while (proto && proto !== Object.prototype) {
     for (const key of Object.getOwnPropertyNames(proto)) {
       const desc = Object.getOwnPropertyDescriptor(proto, key);
       if (desc && desc.get && !(key in data)) {
-        data[key] = collectFieldValue(instance[key]);
+        data[key] = instance[key];
       }
     }
     proto = Object.getPrototypeOf(proto);
@@ -74,15 +74,17 @@ function collectFields(instance) {
   return data;
 }
 /**
- * Convert an observable map to a plain object so it serializes to `{}`/`{k: v}`
- * instead of mobx's `toJSON` entries array (which is not what persisted stores
- * expect). Non-map values pass through untouched.
+ * Normalize an observable map to a plain object (`{k: v}`) so it serializes
+ * correctly. mobx 7's map `toJSON` emits an entries array `[["k", v]]`, which
+ * persisted stores don't expect. Non-map values pass through untouched.
+ *
+ * This is deliberately a SEPARATE step from `collectFields`, which returns raw
+ * field values: observable maps must stay raw until AFTER field formatters
+ * (`@format`) have run, so formatters continue to receive the same shape they
+ * always did (the raw `ObservableMap`, not the converted plain object).
  */
-function collectFieldValue(value) {
-  if (isObservableMap(value)) {
-    return Object.fromEntries(value);
-  }
-  return value;
+function normalizeMapValues(value) {
+  return isObservableMap(value) ? Object.fromEntries(value) : value;
 }
 /**
  * A `JSON.stringify` replacer that reconstructs each object layer with its
@@ -97,7 +99,11 @@ function collectFieldsReplacer(_key, value) {
     if (typeof value.toJSON === 'function') {
       return value;
     }
-    return collectFields(value);
+    const fields = collectFields(value);
+    for (const key of Object.keys(fields)) {
+      fields[key] = normalizeMapValues(fields[key]);
+    }
+    return fields;
   }
   return value;
 }
@@ -328,14 +334,12 @@ function inject(target, key) {
     if (this[KeyFormat]) {
       const dump = {};
       for (const key in data) {
-        if (
-          data.hasOwnProperty(key) &&
-          this[KeyFormat][key] &&
-          this[KeyFormat][key].serializer
-        ) {
-          dump[key] = this[KeyFormat][key].serializer(data[key]);
-        } else {
-          dump[key] = data[key];
+        if (data.hasOwnProperty(key)) {
+          const fmt = this[KeyFormat][key];
+          // Formatters receive the RAW field value (e.g. an observable map),
+          // matching the shape they always received before the mobx 7 upgrade.
+          dump[key] =
+            fmt && fmt.serializer ? fmt.serializer(data[key]) : data[key];
         }
       }
       data = dump;
@@ -348,6 +352,13 @@ function inject(target, key) {
         }
       }
       data = dump;
+    }
+    // Convert any remaining observable maps (i.e. fields WITHOUT a formatter)
+    // to plain objects so they serialize as `{k: v}` instead of mobx 7's
+    // entries array. Fields WITH a formatter were already handled above, with
+    // the raw map handed to the serializer.
+    for (const key of Object.keys(data)) {
+      data[key] = normalizeMapValues(data[key]);
     }
     data[KeyVersions] = target[KeyVersions];
     return data;
@@ -579,6 +590,7 @@ export {
   ignore,
   inject,
   isPrimitive,
+  normalizeMapValues,
   options,
   parseCycle,
   parseStore,

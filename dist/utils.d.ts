@@ -13,6 +13,17 @@ export declare function isPrimitive(value: any): boolean;
  */
 export declare function collectFields(instance: any): Record<string, any>;
 /**
+ * Normalize an observable map to a plain object (`{k: v}`) so it serializes
+ * correctly. mobx 7's map `toJSON` emits an entries array `[["k", v]]`, which
+ * persisted stores don't expect. Non-map values pass through untouched.
+ *
+ * This is deliberately a SEPARATE step from `collectFields`, which returns raw
+ * field values: observable maps must stay raw until AFTER field formatters
+ * (`@format`) have run, so formatters continue to receive the same shape they
+ * always did (the raw `ObservableMap`, not the converted plain object).
+ */
+export declare function normalizeMapValues(value: any): any;
+/**
  * A `JSON.stringify` replacer that reconstructs each object layer with its
  * accessor fields made enumerable, so nested observable stores (including the
  * mobx 7 `@observable accessor` fields, which are non-enumerable) are
