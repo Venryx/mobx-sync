@@ -3,7 +3,9 @@
  * @since 2018-06-27 00:21:42
  */
 
-export function isPrimitive (value: any) {
+import { isObservableMap } from 'mobx';
+
+export function isPrimitive(value: any) {
   if (value === void 0 || value === null) {
     return true;
   }
@@ -11,9 +13,65 @@ export function isPrimitive (value: any) {
   return type === 'string' || type === 'number' || type === 'boolean';
 }
 
-export function toJSON (data: any, recursive = true) {
+/**
+ * Collect the serializable fields of a store instance. With mobx 6/7 +
+ * Stage-3 decorators (`@observable accessor`), fields are declared as
+ * non-enumerable accessors on the prototype, so neither `for..in` nor
+ * `JSON.stringify`'s default enumeration can see them. This walks the own
+ * enumerable properties and every accessor (getter) property on the prototype
+ * chain, so both classic fields and modern observable accessors are collected.
+ */
+export function collectFields(instance: any): Record<string, any> {
+  const data: Record<string, any> = {};
+  for (const key of Object.keys(instance)) {
+    data[key] = collectFieldValue(instance[key]);
+  }
+  let proto = Object.getPrototypeOf(instance);
+  while (proto && proto !== Object.prototype) {
+    for (const key of Object.getOwnPropertyNames(proto)) {
+      const desc = Object.getOwnPropertyDescriptor(proto, key);
+      if (desc && desc.get && !(key in data)) {
+        data[key] = collectFieldValue(instance[key]);
+      }
+    }
+    proto = Object.getPrototypeOf(proto);
+  }
+  return data;
+}
+
+/**
+ * Convert an observable map to a plain object so it serializes to `{}`/`{k: v}`
+ * instead of mobx's `toJSON` entries array (which is not what persisted stores
+ * expect). Non-map values pass through untouched.
+ */
+function collectFieldValue(value: any): any {
+  if (isObservableMap(value)) {
+    return Object.fromEntries(value);
+  }
+  return value;
+}
+
+/**
+ * A `JSON.stringify` replacer that reconstructs each object layer with its
+ * accessor fields made enumerable, so nested observable stores (including the
+ * mobx 7 `@observable accessor` fields, which are non-enumerable) are
+ * serialized correctly. Objects that expose a `toJSON` (e.g. via
+ * `inject`/`format`/`ignore`) are returned as-is so their custom serialization
+ * is honoured.
+ */
+export function collectFieldsReplacer(_key: string, value: any): any {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    if (typeof value.toJSON === 'function') {
+      return value;
+    }
+    return collectFields(value);
+  }
+  return value;
+}
+
+export function toJSON(data: any, recursive = true) {
   if (recursive) {
-    const str = JSON.stringify(data);
+    const str = JSON.stringify(data, collectFieldsReplacer);
     if (str === void 0) {
       return void 0;
     }
@@ -26,7 +84,7 @@ export function toJSON (data: any, recursive = true) {
 }
 
 // TODO support es5 browsers
-export function parseCycle (
+export function parseCycle(
   input: object,
   map = new Map<object, string[]>(),
   prefix = '',
@@ -45,8 +103,7 @@ export function parseCycle (
     if (!map.has(item[1])) {
       map.set(item[1], [subPrefix]);
       parseCycle(item[1], map, subPrefix);
-    }
-    else {
+    } else {
       (map.get(item[1]) as string[]).push(subPrefix);
     }
   }

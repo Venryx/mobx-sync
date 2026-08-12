@@ -12,6 +12,7 @@ import { autorun, IReactionDisposer } from 'mobx';
 import { noop } from 'monofile-utilities/lib/consts';
 import { KeyActionName, KeyDefaultKey } from './keys';
 import { parseStore } from './parse-store';
+import { collectFieldsReplacer } from './utils';
 import { SyncStorage } from './sync';
 
 /**
@@ -76,7 +77,10 @@ export class AsyncTrunk {
 
   async persist() {
     try {
-      await this.storage.setItem(this.storageKey, JSON.stringify(this.store));
+      await this.storage.setItem(
+        this.storageKey,
+        JSON.stringify(this.store, collectFieldsReplacer),
+      );
     } catch (reason) {
       this.onError(reason);
     }

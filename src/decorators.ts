@@ -9,6 +9,21 @@ import { inject } from './inject';
 import { KeyFormat, KeyIgnores, KeyNodeVersion, KeyVersions } from './keys';
 
 /**
+ * Stage-3 decorator field context (the `context` argument passed to a
+ * field/accessor decorator). `addInitializer` runs with `this` bound to the
+ * instance, after the field initializers have completed, so we can reach the
+ * owning class via `this.constructor` and store per-class metadata on its
+ * prototype (mirroring the old legacy `(target, propertyKey)` behaviour).
+ */
+type FieldContext = {
+  kind: string;
+  name: string | symbol;
+  static: boolean;
+  private: boolean;
+  addInitializer(fn: (this: any) => void): void;
+};
+
+/**
  * define a custom stringify/parse function for a field, it is useful for
  * builtin objects, just like Date, TypedArray, etc.
  *
@@ -34,10 +49,13 @@ import { KeyFormat, KeyIgnores, KeyNodeVersion, KeyVersions } from './keys';
 export function format<I, O = I>(
   deserializer: (persistedValue: O, currentValue: I) => I,
   serializer?: (value: I) => O,
-): PropertyDecorator {
-  return (target: any, propertyKey: string | symbol) => {
-    inject(target, KeyFormat);
-    target[KeyFormat][propertyKey] = { deserializer, serializer };
+) {
+  return (_value: unknown, context: FieldContext) => {
+    context.addInitializer(function (this: any) {
+      const proto = this.constructor.prototype;
+      inject(proto, KeyFormat);
+      proto[KeyFormat][context.name] = { deserializer, serializer };
+    });
   };
 }
 
@@ -66,9 +84,24 @@ export const regexp = format<RegExp, RegExpStore>(
   (value) => ({ flags: value.flags, source: value.source }),
 );
 
-function _ignore(target: any, propertyKey: string) {
-  inject(target, KeyIgnores);
-  target[KeyIgnores][propertyKey] = true;
+function _ignore(proto: any, propertyKey: string | symbol) {
+  inject(proto, KeyIgnores);
+  proto[KeyIgnores][propertyKey] = true;
+}
+
+/**
+ * Build an `ignore`-style field decorator whose behaviour is gated by
+ * `shouldIgnore()` (evaluated once, at instance initialisation time).
+ */
+function ignoreImpl(shouldIgnore: () => boolean) {
+  return (_value: unknown, context: FieldContext) => {
+    context.addInitializer(function (this: any) {
+      if (!shouldIgnore()) {
+        return;
+      }
+      _ignore(this.constructor.prototype, context.name);
+    });
+  };
 }
 
 /**
@@ -84,25 +117,19 @@ function _ignore(target: any, propertyKey: string) {
  *   @ignore
  *   bigTable = observable.map()
  * }
- *
- * @param target
- * @param propertyKey
  */
-function ignore(target: any, propertyKey: string) {
-  if (options.ssr) {
-    return;
-  }
-  _ignore(target, propertyKey);
+function ignore(value: unknown, context: FieldContext) {
+  ignoreImpl(() => !options.ssr)(value, context);
 }
 
 /**
  * same to `ignore`, but ignore the field even if the runtime is ssr.
  */
-ignore.ssr = _ignore;
-ignore.ssrOnly = (target: any, propertyKey: string) => {
-  if (options.ssr) {
-    _ignore(target, propertyKey);
-  }
+ignore.ssr = (value: unknown, context: FieldContext) => {
+  ignoreImpl(() => true)(value, context);
+};
+ignore.ssrOnly = (value: unknown, context: FieldContext) => {
+  ignoreImpl(() => options.ssr)(value, context);
 };
 
 export { ignore };
@@ -122,18 +149,29 @@ export { ignore };
  *   users = observable.map()
  * }
  *
+ * When applied to a class, it sets the version of the node itself.
+ *
  * @param value - the version number, this should be different from all the
  *    old version when update it, a best practice is use q increment number.
  */
 export function version(value: number | string) {
-  return (target: any, key: string = KeyNodeVersion) => {
-    if (typeof target === 'function') {
-      target = target.prototype;
+  return (target: any, context: any) => {
+    if (context.kind === 'class') {
+      const proto = target.prototype;
+      inject(proto);
+      if (!proto.hasOwnProperty(KeyVersions)) {
+        proto[KeyVersions] = __assign({}, proto[KeyVersions] || {});
+      }
+      proto[KeyVersions][KeyNodeVersion] = value;
+      return target;
     }
-    inject(target);
-    if (!target.hasOwnProperty(KeyVersions)) {
-      target[KeyVersions] = __assign({}, target[KeyVersions] || {});
-    }
-    target[KeyVersions][key] = value;
+    context.addInitializer(function (this: any) {
+      const proto = this.constructor.prototype;
+      inject(proto);
+      if (!proto.hasOwnProperty(KeyVersions)) {
+        proto[KeyVersions] = __assign({}, proto[KeyVersions] || {});
+      }
+      proto[KeyVersions][context.name] = value;
+    });
   };
 }

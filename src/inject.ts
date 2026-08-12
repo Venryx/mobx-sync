@@ -4,11 +4,13 @@
  */
 
 import { KeyFormat, KeyIgnores, KeyInject, KeyVersions } from './keys';
+import { collectFields } from './utils';
 
-export function inject (target: any, key?: string) {
+export function inject(target: any, key?: string) {
   if (key !== void 0 && !target.hasOwnProperty(key)) {
     Object.defineProperty(target, key, {
-      enumerable: false, value: Object.create(target[key] || null),
+      enumerable: false,
+      value: Object.create(target[key] || null),
     });
   }
   if (target.hasOwnProperty(KeyInject)) {
@@ -22,15 +24,19 @@ export function inject (target: any, key?: string) {
   const { toJSON } = target;
   target.toJSON = function () {
     let data: any = toJSON ? toJSON.call(this) || {} : this;
+    if (data === this) {
+      data = collectFields(this);
+    }
     if (this[KeyFormat]) {
       const dump: any = {};
       for (const key in data) {
-        if (data.hasOwnProperty(key)
-          && this[KeyFormat][key]
-          && this[KeyFormat][key].serializer) {
+        if (
+          data.hasOwnProperty(key) &&
+          this[KeyFormat][key] &&
+          this[KeyFormat][key].serializer
+        ) {
           dump[key] = this[KeyFormat][key].serializer(data[key]);
-        }
-        else {
+        } else {
           dump[key] = data[key];
         }
       }

@@ -13,7 +13,7 @@ export class RootStore {
    * will not trigger persist event.
    * @type {boolean}
    */
-  @ignore storeLoaded = false;
+  @ignore accessor storeLoaded = false;
   article = article;
   user = user;
 }

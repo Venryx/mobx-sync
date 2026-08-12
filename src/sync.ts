@@ -12,6 +12,7 @@ import { autorun, IReactionDisposer } from 'mobx';
 import { noop } from 'monofile-utilities/lib/consts';
 import { KeyActionName, KeyDefaultKey } from './keys';
 import { parseStore } from './parse-store';
+import { collectFieldsReplacer } from './utils';
 
 export interface SyncStorage {
   getItem(key: string): string | null;
@@ -70,7 +71,10 @@ export class SyncTrunk {
 
   persist() {
     try {
-      this.storage.setItem(this.storageKey, JSON.stringify(this.store));
+      this.storage.setItem(
+        this.storageKey,
+        JSON.stringify(this.store, collectFieldsReplacer),
+      );
     } catch (error) {
       this.onError(error);
     }

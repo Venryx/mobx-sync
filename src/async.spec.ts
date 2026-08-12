@@ -9,7 +9,7 @@
  */
 
 import * as assert from 'assert';
-import { observable } from 'mobx';
+import { configure, observable } from 'mobx';
 import { sleep } from 'monofile-utilities/lib/sleep';
 import { AsyncTrunk } from './async';
 import { ignore, version } from './decorators';
@@ -17,24 +17,28 @@ import { KeyNodeVersion, KeyVersions } from './keys';
 import { MemoryStorage } from './memory-storage';
 import { toJSON } from './utils';
 
+// These tests mutate observables directly (no actions), as they were written
+// for earlier mobx versions. Disable mobx 7's strict `enforceActions` so the
+// existing test bodies keep working.
+configure({ enforceActions: 'never' });
+
 @version(4)
 class N1 {
-  @observable
-  int = 1;
+  @observable accessor int = 1;
   map = observable.map<string, number>();
   list = observable.array<number>();
   @version(1)
   @observable
-  vStr = 'vStr';
+  accessor vStr = 'vStr';
   @version(2)
-  vMap = observable.map<string, number>();
+  accessor vMap = observable.map<string, number>();
   @version(3)
-  vList = observable.array<number>();
+  accessor vList = observable.array<number>();
 }
 
 class N2 {
-  @observable hello = 'world';
-  @ignore @observable ignored = 'ignored';
+  @observable accessor hello = 'world';
+  @ignore @observable accessor ignored = 'ignored';
 }
 
 class N3 {
@@ -43,16 +47,16 @@ class N3 {
 
 class Nm {
   @version(4)
-  version = 'version';
+  accessor version = 'version';
 }
 
 class Root {
   n1 = new N1();
   @version(5)
-  n2 = new N2();
+  accessor n2 = new N2();
   @ignore
-  n3 = new N3();
-  nm = new Nm();
+  accessor n3 = new N3();
+  accessor nm = new Nm();
 }
 
 const root = new Root();
@@ -113,7 +117,7 @@ describe('async trunk', () => {
 
     class N5 extends Nm {
       @version(5)
-      version = 'new version';
+      accessor version = 'new version';
     }
 
     const root2 = new Root();
@@ -132,7 +136,7 @@ describe('async trunk', () => {
 
   it('should auto run', async () => {
     class Node {
-      @observable hello = 'world 2';
+      @observable accessor hello = 'world 2';
     }
 
     const store = { node: new Node() };
@@ -152,7 +156,7 @@ describe('async trunk', () => {
 
   it('should persist array', async () => {
     class Node {
-      @observable list = [{ a: '1', b: '2' }];
+      @observable accessor list = [{ a: '1', b: '2' }];
     }
 
     const store = new Node();
@@ -162,7 +166,10 @@ describe('async trunk', () => {
     store.list.push({ a: '3', b: '4' });
     await sleep(100);
     assert.deepStrictEqual(JSON.parse(storage.getItem('key')!), {
-      list: [{ a: '1', b: '2' }, { a: '3', b: '4' }],
+      list: [
+        { a: '1', b: '2' },
+        { a: '3', b: '4' },
+      ],
     });
     store.list = [];
     await sleep(100);

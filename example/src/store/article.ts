@@ -8,8 +8,8 @@ import { date, ignore, version } from 'mobx-sync';
 import { UserStore } from './user';
 
 export class ArticleStore {
-  @observable id = 0;
-  @observable title = '';
+  @observable accessor id = 0;
+  @observable accessor title = '';
 
   /**
    * @desc this field is not persisted, and its update event
@@ -18,7 +18,7 @@ export class ArticleStore {
    */
   @ignore
   @observable
-  content = '';
+  accessor content = '';
 
   /**
    * @desc custom formatter: the date field should be persisted
@@ -32,7 +32,7 @@ export class ArticleStore {
    */
   @date
   @observable
-  createdAt: Date = new Date();
+  accessor createdAt: Date = new Date();
 
   /**
    * @desc version control, you can specify a version for a node
@@ -42,7 +42,7 @@ export class ArticleStore {
    */
   @version(1)
   @observable
-  author = new UserStore();
+  accessor author = new UserStore();
 }
 
 export const article = new ArticleStore();

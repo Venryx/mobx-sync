@@ -12,9 +12,9 @@ import { version } from 'mobx-sync';
  */
 @version(2)
 export class UserStore {
-  @observable id = 1;
-  @observable name = '';
-  @observable avatar = '';
+  @observable accessor id = 1;
+  @observable accessor name = '';
+  @observable accessor avatar = '';
 }
 
 export const user = new UserStore();
